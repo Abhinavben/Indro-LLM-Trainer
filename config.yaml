@@ -1,0 +1,27 @@
+# Indro-3B Training Hyperparameters and Configuration
+
+model_config:
+  model_name: Indro-3B
+  architecture: Transformer
+  num_layers: 24
+  hidden_size: 2048
+  num_heads: 16
+  feed_forward_size: 8192
+  dropout_rate: 0.1
+
+training_config:
+  batch_size: 32
+  learning_rate: 0.0001
+  num_epochs: 10
+  weight_decay: 0.01
+  optimizer: Adam
+  gradient_accumulation_steps: 1
+  warmup_steps: 500
+  logging_steps: 100
+  save_steps: 2000
+
+data_config:
+  dataset: "path/to/dataset"
+  max_seq_length: 512
+  shuffle_buffer_size: 10000
+
