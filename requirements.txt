@@ -1,0 +1,1 @@
+torch>=2.0.0\nnumpy>=1.21.0\nzstandard>=0.15.0\ntransformers>=4.30.0\nhuggingface-hub>=0.16.0\nwandb>=0.14.0\npynvml>=11.4.1\nflash-attn>=2.0.0
