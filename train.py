@@ -67,7 +67,8 @@ torch.backends.cudnn.deterministic = True
 class TrainingMonitor:
     def __init__(self):
         self.loss_history = []
-        self.skipped_steps = 0 # 👑 FIX: Track gradient explosions    
+        self.skipped_steps = 0 # 👑 FIX: Track gradient explosions
+    
     def update(self, loss):
         self.loss_history.append(loss)
         if len(self.loss_history) > 100: self.loss_history.pop(0)
@@ -137,7 +138,8 @@ class OmniCloudDataset(IterableDataset):
         dctx = zstd.ZstdDecompressor()
         buffer_tokens = []
         buffer_doc_ids = [] 
-        doc_id_counter = 1        
+        doc_id_counter = 1
+        
         for file_name in my_files:
             local_path = hf_hub_download(repo_id=CONFIG["hf_repo_id"], filename=file_name, repo_type="dataset", cache_dir=self.cache_dir)
             with open(local_path, 'rb') as f:
@@ -398,6 +400,47 @@ def train():
                     cross_entropy = F.cross_entropy(logits.view(-1, CONFIG["vocab_size"]), y.view(-1))
                     z_loss = torch.logsumexp(logits, dim=-1).pow(2).mean() * current_z_weight
                     loss = (cross_entropy + z_loss) / CONFIG["grad_accum_steps"]
+                    
+                    acc = (logits.argmax(dim=-1) == y).float().mean() / CONFIG["grad_accum_steps"]
+                    
+                scaler.scale(loss).backward()
+                accum_loss += loss.item()
+                accum_acc += acc.item()
+
+        scaler.unscale_(optimizer)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        
+        # 👑 FIX: WandB Tracking for gradient explosions
+        if not math.isfinite(accum_loss) or grad_norm > 10.0 or torch.isnan(grad_norm):
+            if rank == 0: 
+                print(f"💀 CRITICAL: Gradient {grad_norm:.2f}. Skipping Step to save weights.")
+                monitor.skipped_steps += 1
+                wandb.log({"system/skipped_steps": monitor.skipped_steps}, step=step_val)
+            optimizer.zero_grad(set_to_none=True)
+            continue
+
+        scaler.step(optimizer)
+        scaler.update()
+        monitor.update(accum_loss)
+        running_loss = 0.9 * running_loss + 0.1 * accum_loss if step_val > 0 else accum_loss
+        
+        for p in model.parameters():
+            if p.grad is not None: grad_norm_sq += (p.grad.norm() ** 2).item()
+        gns = grad_norm_sq / (accum_loss + 1e-8)
+        
+        # 👑 FIX: Safe EMA with `summon_full_params` offloaded to CPU (Executes every 50 steps to preserve speed)
+        if step_val % 50 == 0:
+            with FSDP.summon_full_params(model, writeback=False, offload_to_cpu=True):
+                with torch.no_grad():
+                    model_params = [p.data for p in model.parameters()]
+                    ema_params = list(ema_model.parameters())
+                    torch._foreach_mul_(ema_params, CONFIG["ema_decay"])
+                    torch._foreach_add_(ema_params, model_params, alpha=1 - CONFIG["ema_decay"])
+
+        # TELEMETRY
+        if step_val % 10 == 0 and rank == 0:
+            dt = time.time() - t0
+            tok_sec = (CONFIG["batch_size"] * CONFIG["grad_accum_steps"]
                     
                     acc = (logits.argmax(dim=-1) == y).float().mean() / CONFIG["grad_accum_steps"]
                     
