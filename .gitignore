@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv/
+venv/
+
+# PyTorch
+*.pt
+*.pth
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Machine Learning
+*.model
+*.h5
+*.pkl
+
+# IDEs
+*.vscode/
+*.idea/
